@@ -29,7 +29,7 @@ namespace HelloWorld.Controllers
             _context.Add(driver);
             await _context.SaveChangesAsync();
 
-            var allDrivers = _context.Drives.ToListAsync();
+            var allDrivers = await _context.Drives.ToListAsync();
 
             return Ok(allDrivers);
         }
