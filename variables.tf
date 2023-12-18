@@ -1,13 +1,13 @@
 variable "vpc_id" {
   type = string
   //fake
-  default = "vpc-01e6258d771394cd2"
+  default = "vpc-08644e01225b62e6b"
 }
 variable "private_subnets" {
   type = list(any)
   //fake
   default = [
-      "subnet-0645832d707a8f267",
-      "subnet-02febd33a9c97ac4f"
+      "subnet-049afe01c75014012",
+      "subnet-0b6003c8d3a8b2cad"
   ]
 }

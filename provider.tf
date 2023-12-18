@@ -16,14 +16,25 @@ provider "aws" {
   region  = "ca-central-1"
 }
 
+#resource "aws_vpc_endpoint" "ecr_connection" {
+#  vpc_id = var.vpc_id
+ # service_name = "com.amazonaws.ca-central-1.ecr.api"
+#  vpc_endpoint_type = "Interface"
+ # private_dns_enabled = true
+
+#  security_group_ids = [
+ #   aws_security_group.ecs_security_group.id,
+ # ]
+#}
+
 # Load balancer security group. CIDR and port ingress can be changed as required.
 resource "aws_security_group" "lb_security_group" {
   description = "LoadBalancer Security Group"
   vpc_id = var.vpc_id
   ingress {
-    description      = "Allow from anyone on port 80"
-    from_port        = 80
-    to_port          = 80
+    description      = "Allow from anyone on port 8080"
+    from_port        = 8080
+    to_port          = 8080
     protocol         = "tcp"
     cidr_blocks      = ["0.0.0.0/0"]
   }
@@ -43,8 +54,8 @@ resource "aws_security_group" "lb_security_group" {
 resource "aws_security_group_rule" "sg_egress_rule_lb_to_ecs_cluster" {
   type	= "egress"
   description = "Target group egress"
-  from_port         = 80
-  to_port           = 80
+  from_port         = 8080
+  to_port           = 8080
   protocol          = "tcp"
   security_group_id = aws_security_group.lb_security_group.id
   source_security_group_id = aws_security_group.ecs_security_group.id
@@ -67,8 +78,8 @@ resource "aws_security_group" "ecs_security_group" {
 resource "aws_security_group_rule" "sg_ingress_rule_ecs_cluster_from_lb" {
   type	= "ingress"
   description = "Ingress from Load Balancer"
-  from_port         = 80
-  to_port           = 80
+  from_port         = 8080
+  to_port           = 8080
   protocol          = "tcp"
   security_group_id = aws_security_group.ecs_security_group.id
   source_security_group_id = aws_security_group.lb_security_group.id
@@ -84,7 +95,7 @@ resource "aws_lb" "ecs_alb" {
 
 # Create the ALB target group for ECS.
 resource "aws_lb_target_group" "alb_ecs_tg" {
-  port        = 80
+  port        = 8080
   protocol    = "HTTP"
   target_type = "ip"
   vpc_id      = var.vpc_id
@@ -93,7 +104,7 @@ resource "aws_lb_target_group" "alb_ecs_tg" {
 # Create the ALB listener with the target group.
 resource "aws_lb_listener" "ecs_alb_listener" {
   load_balancer_arn = aws_lb.ecs_alb.arn
-  port              = "80"
+  port              = "8080"
   protocol          = "HTTP"
   default_action {
     type             = "forward"
@@ -120,13 +131,14 @@ resource "aws_ecs_service" "demo-ecs-service" {
 
   load_balancer {
     target_group_arn = aws_lb_target_group.alb_ecs_tg.arn
-    container_name   = "web"
-    container_port   = 80
+    container_name   = "helloworldapp"
+    container_port   = 8080
   }
 
   network_configuration {
     security_groups = [aws_security_group.ecs_security_group.id]
     subnets = var.private_subnets
+    assign_public_ip = true # Pour accéder aux images sur internet
   }
 }
 
@@ -135,16 +147,18 @@ resource "aws_ecs_service" "demo-ecs-service" {
 # This image is pulled from the docker hub which is the default image repository.
 # ECS task execution role and the task role is used which can be attached with additional IAM policies to configure the required permissions.
 resource "aws_ecs_task_definition" "ecs_taskdef" {
-  family = "service"
+  family = "servicehelloworld"
   container_definitions = jsonencode([
     {
-      name      = "web"
-      image     = "nginx"
+      name      = "helloworldapp"
+      image     = "048644955535.dkr.ecr.ca-central-1.amazonaws.com/helloworld:638384639121488681"
       essential = true
       portMappings = [
         {
-          containerPort = 80
+          containerPort = 8080
           protocol      = "tcp"
+          portName      = "helloworld-8080-tcp"
+          appProtocol   = "http"
         }
       ]
     }
@@ -152,10 +166,15 @@ resource "aws_ecs_task_definition" "ecs_taskdef" {
   cpu       = 512
   memory    = 1024
   execution_role_arn = aws_iam_role.ecs_task_exec_role.arn
-  task_role_arn = aws_iam_role.ecs_task_role.arn
+  task_role_arn = aws_iam_role.ecs_task_exec_role.arn
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
 }
+
+data "aws_iam_policy" "AmazonECSTaskExecutionRole" {
+  name = "AmazonECSTaskExecutionRolePolicy"
+}
+
 resource "aws_iam_role" "ecs_task_exec_role" {
   name = "ecs_task_exec_role"
   assume_role_policy = jsonencode({
@@ -171,6 +190,12 @@ resource "aws_iam_role" "ecs_task_exec_role" {
     ]
   })
 }
+
+resource "aws_iam_role_policy_attachment" "sto-readonly-role-policy-attach" {
+  role       = "${aws_iam_role.ecs_task_exec_role.name}"
+  policy_arn = "${data.aws_iam_policy.AmazonECSTaskExecutionRole.arn}"
+}
+
 resource "aws_iam_role" "ecs_task_role" {
   name = "ecs_task_role"
   assume_role_policy = jsonencode({
