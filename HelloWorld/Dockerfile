@@ -4,16 +4,19 @@
 # apk update
 # apk add install curl
 
+ARG REPO=mcr.microsoft.com/dotnet/runtime
+#FROM $REPO:8.0.2-alpine3.19-amd64
+#ARG image_prefix=portail-depotspaquets.services.rq/forge-images-docker-remote
 
-ARG image_prefix=portail-depotspaquets.services.rq/forge-images-docker-remote
-
-FROM ${image_prefix}/dotnet/aspnet:8.0-alpine AS base
+FROM $REPO/dotnet/aspnet:8.0-alpine AS base
+#FROM ${image_prefix}/dotnet/aspnet:8.0-alpine AS base
 USER app
 WORKDIR /app
 EXPOSE 8080
 EXPOSE 8081
 
-FROM ${image_prefix}/dotnet/sdk:8.0-alpine AS build
+FROM $REPO/dotnet/sdk:8.0-alpine AS build
+#FROM ${image_prefix}/dotnet/sdk:8.0-alpine AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 COPY ["HelloWorld/HelloWorld.csproj", "HelloWorld/"]
