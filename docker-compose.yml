@@ -6,7 +6,7 @@ networks:
 
 services:
   helloworld:
-    image: ${DOCKER_REGISTRY-}helloworld
+    image: xychus/helloworld #${DOCKER_REGISTRY-}helloworld
     depends_on:
      - "app_db"    
     ports:

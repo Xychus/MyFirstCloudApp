@@ -16,39 +16,43 @@ provider "aws" {
   region  = "ca-central-1"
 }
 
-#resource "aws_vpc_endpoint" "ecr_connection" {
-#  vpc_id = var.vpc_id
- # service_name = "com.amazonaws.ca-central-1.ecr.api"
-#  vpc_endpoint_type = "Interface"
- # private_dns_enabled = true
-
-#  security_group_ids = [
- #   aws_security_group.ecs_security_group.id,
- # ]
-#}
-
 # Load balancer security group. CIDR and port ingress can be changed as required.
 resource "aws_security_group" "lb_security_group" {
   description = "LoadBalancer Security Group"
   vpc_id = var.vpc_id
   ingress {
-    description      = "Allow from anyone on port 8080"
+    description      = "Allow from anyone on port 80"
     from_port        = 8080
     to_port          = 8080
     protocol         = "tcp"
     cidr_blocks      = ["0.0.0.0/0"]
   }
 }
-#resource "aws_security_group_rule" "sg_ingress_rule_all_to_lb" {
-#  type	= "ingress"  
-#  description = "Allow from anyone on port 80"
-#  from_port         = 80
-#  to_port           = 80
-#  protocol          = "tcp"
-# cidr_blocks       = ["0.0.0.0/0"]
-#  ipv6_cidr_blocks  = ["::/0"]
-#  security_group_id = aws_security_group.lb_security_group.id
-#}
+
+# VPCLink Security Group. CIDR and port ingress can be changed as required.
+resource "aws_security_group" "vpclink_security_group" {
+  description = "VPCLink Security Group"
+  vpc_id = var.vpc_id
+  ingress {
+    description      = "Allow from anyone on port 80"
+    from_port        = 8080
+    to_port          = 8080
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+  }
+}
+
+# Load balancer security group egress rule to ECS cluster security group.
+resource "aws_security_group_rule" "sg_egress_rule_vpclink_to_lb" {
+  type	= "egress"
+  description = "Target group egress"
+  from_port         = 8080
+  to_port           = 8080
+  protocol          = "tcp"
+  security_group_id = aws_security_group.vpclink_security_group.id
+  source_security_group_id = aws_security_group.lb_security_group.id
+}
+
 
 # Load balancer security group egress rule to ECS cluster security group.
 resource "aws_security_group_rule" "sg_egress_rule_lb_to_ecs_cluster" {
@@ -118,9 +122,9 @@ resource "aws_ecs_cluster" "ecs_cluster" {
 }
 
 resource "aws_ecs_service" "demo-ecs-service" {
-  name            = "demo-ecs-svc"
+  name            = "demo-ecs-svc2"
   cluster         = aws_ecs_cluster.ecs_cluster.id
-  task_definition = aws_ecs_task_definition.ecs_taskdef.arn
+  task_definition = aws_ecs_task_definition.ecs_taskdef2.arn
   desired_count   = 2
   deployment_maximum_percent = 200
   deployment_minimum_healthy_percent = 50
@@ -131,14 +135,14 @@ resource "aws_ecs_service" "demo-ecs-service" {
 
   load_balancer {
     target_group_arn = aws_lb_target_group.alb_ecs_tg.arn
-    container_name   = "helloworldapp"
+    container_name   = "helloworld"
     container_port   = 8080
   }
 
   network_configuration {
     security_groups = [aws_security_group.ecs_security_group.id]
     subnets = var.private_subnets
-    assign_public_ip = true # Pour accéder aux images sur internet
+    assign_public_ip = true
   }
 }
 
@@ -146,35 +150,58 @@ resource "aws_ecs_service" "demo-ecs-service" {
 # 'nginx' image is being used in the container definition.
 # This image is pulled from the docker hub which is the default image repository.
 # ECS task execution role and the task role is used which can be attached with additional IAM policies to configure the required permissions.
-resource "aws_ecs_task_definition" "ecs_taskdef" {
-  family = "servicehelloworld"
-  container_definitions = jsonencode([
-    {
-      name      = "helloworldapp"
-      image     = "048644955535.dkr.ecr.ca-central-1.amazonaws.com/helloworld:638384639121488681"
-      essential = true
-      portMappings = [
+resource "aws_ecs_task_definition" "ecs_taskdef2" {
+  family = "dotnet"
+  container_definitions = <<DEFINITION
+    [{
+      "name": "helloworld",
+      "image": "xychus/helloworld",
+      "essential": true,
+      "portMappings": [
         {
-          containerPort = 8080
-          protocol      = "tcp"
-          portName      = "helloworld-8080-tcp"
-          appProtocol   = "http"
+          "containerPort": 8080,
+          "protocol": "tcp"
         }
-      ]
+      ],
+      "environment": [
+        {
+            "name":"ASPNETCORE_URLS",
+            "value":"http://+:8080"            
+        },
+        {
+            "name":"fds",
+            "value":"dsfdsf"
+        }
+      ],
+      "healthCheck": {
+              "retries": 3,
+              "command": [
+                  "CMD-SHELL",
+                  "curl -f http://localhost:8080/healthcheck/ || exit 1"
+              ],
+              "timeout": 5,
+              "interval": 30,
+              "startPeriod": null
+      },
+      "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "/ecs/dotnet",
+            "awslogs-region": "ca-central-1",
+            "awslogs-stream-prefix": "ecs",
+            "awslogs-create-group": "true"
+          }
+        }
     }
-  ])
+  ]
+  DEFINITION
   cpu       = 512
   memory    = 1024
   execution_role_arn = aws_iam_role.ecs_task_exec_role.arn
-  task_role_arn = aws_iam_role.ecs_task_exec_role.arn
+  task_role_arn = aws_iam_role.ecs_task_role.arn
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
 }
-
-data "aws_iam_policy" "AmazonECSTaskExecutionRole" {
-  name = "AmazonECSTaskExecutionRolePolicy"
-}
-
 resource "aws_iam_role" "ecs_task_exec_role" {
   name = "ecs_task_exec_role"
   assume_role_policy = jsonencode({
@@ -190,12 +217,6 @@ resource "aws_iam_role" "ecs_task_exec_role" {
     ]
   })
 }
-
-resource "aws_iam_role_policy_attachment" "sto-readonly-role-policy-attach" {
-  role       = "${aws_iam_role.ecs_task_exec_role.name}"
-  policy_arn = "${data.aws_iam_policy.AmazonECSTaskExecutionRole.arn}"
-}
-
 resource "aws_iam_role" "ecs_task_role" {
   name = "ecs_task_role"
   assume_role_policy = jsonencode({
@@ -212,10 +233,40 @@ resource "aws_iam_role" "ecs_task_role" {
   })
 }
 
+# Policy pour tracer dans CloudWatch
+resource "aws_iam_policy" "task_logging" {
+  name = "task_logging"
+  path = "/"
+  description = "IAM policy for logging from a task"
+
+  policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:*:*:*",
+      "Effect": "Allow"
+    }
+  ]
+}
+EOF
+}
+
+# Attacher la policy pour tracer dans CloudWatch
+resource "aws_iam_role_policy_attachment" "task_logs" {
+  role = "${aws_iam_role.ecs_task_exec_role.name}"
+  policy_arn = "${aws_iam_policy.task_logging.arn}"
+}
+
 # Create the VPC Link configured with the private subnets. Security groups are kept empty here, but can be configured as required.
 resource "aws_apigatewayv2_vpc_link" "vpclink_apigw_to_alb" {
   name        = "vpclink_apigw_to_alb"
-  security_group_ids = []
+  security_group_ids = [aws_security_group.vpclink_security_group.id]
   subnet_ids = var.private_subnets
 }
 

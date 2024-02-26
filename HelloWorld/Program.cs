@@ -1,3 +1,5 @@
+using Amazon;
+using Amazon.Util;
 using HelloWorld.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,6 +10,8 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 var conn = builder.Configuration.GetConnectionString("DefaultConnection");
 
+
+//var pwd = Amazon.RDS.Util.RDSAuthTokenGenerator.GenerateAuthToken(RegionEndpoint.CACentral1, Environment.GetEnvironmentVariable("BD_ENDPOINT"), 3306, "mysql");
 builder.Services.AddDbContext<ApiDbContext>(options => options.UseMySql(conn,ServerVersion.AutoDetect(conn)));
 
 builder.Services.AddControllers();
@@ -15,6 +19,7 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHealthChecks();
+
 //builder.Services.AddHealthChecksUI().AddInMemoryStorage().Services.AddHealthChecks().AddCheck<RandomHealthCheck>("random").;
 
 var app = builder.Build();
@@ -31,7 +36,7 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 
 app.MapControllers();
-
+app.MapHealthChecks("/healthcheck");
 //app
 //            .UseRouting()
 //            .UseEndpoints(config =>
